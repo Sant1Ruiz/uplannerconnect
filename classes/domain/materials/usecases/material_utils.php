@@ -92,8 +92,8 @@ class material_utils
                 }
             } else if (in_array($typeFile, ['url', 'label', 'lightboxgallery', 'book', 'page', 'imscp'])) {
                 $typeFile = 'link';
-                $url = $this->getUrlResource($event, $fileData);
             }
+            $url = $this->getUrlResource($event, $fileData);
 
             $moduleName = $getData['other']['name'] ?? '';
 

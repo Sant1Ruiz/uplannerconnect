@@ -104,9 +104,13 @@ class handle_send_uplanner_task
     ) {
         $this->create_log($this->prefix . $this->task_id . '_log');
         $this->log->add_line('------------------------------------------  UPLANNER - PROCESS START - FOREACH REPOSITORIES ------------------------------------------');
+        # Se valida el estado 2, pero pasa a resending los estado 3
         if ($state == repository_type::STATE_ERROR) {
             $this->send_error_per_repository($page_size = 1000);
+            # En este se pone el estado de resending con estado 0
+            # Entonces el estado que debe utilizarse a continuacion para enviar deberia de ser los 0
         }
+        # Recorre todas las 4 tablas con el estado declarado en los parametros
         foreach (repository_type::ACTIVE_REPOSITORY_TYPES as $type => $repository_class) {
             $this->log->add_line('------- CREATE REPOSITORY OBJECT: ' . $type . ' - ' . $repository_class);
             $repository = new $repository_class();
@@ -306,8 +310,16 @@ class handle_send_uplanner_task
                 return;
             }
             $offset = 0;
+            # En esto no veo la condicion de parada, pero si hay limite a enviarse
+            # osea esto puede provocar que hayan mas resending que los que realmente se enviaran
+            # porque el envio esta limitado a 100 registros y se ejecuta 1000 veces por repositorio
+            # este while busca de a 1000 registros sin condicion de parada
+            # ARREGLAR ESTO SINCRONIZANDO CON EL NUMERO DE REQUEST POR ENDPOINT PARA QUE SE LIMITE A LO MISMO
+            # LO QUE ENVIA DEBE DE SER IGUAL A LO QUE PREPARA PAR ENVIAR YA QUE ESTOS QUEDAN INACCESIBLES 
+            # PARA SER ENVIADO NUEVAMENTE PORQUE SU ESTADO PASA A 0, SIN SIQUIERA HABERSE INTENTADO
             while (true) {
                 $data = [
+                    # Esto esta mal? esto es estado 3, pero el condicional anterior para llegar aqui es estado 2
                     'state' => repository_type::STATE_UP_ERROR,
                     'limit' => $page_size,
                     'offset' => $offset,
