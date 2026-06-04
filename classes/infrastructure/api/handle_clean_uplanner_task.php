@@ -17,6 +17,7 @@ use local_uplannerconnect\infrastructure\api\factory\uplanner_client_factory;
 use local_uplannerconnect\infrastructure\email\email;
 use local_uplannerconnect\infrastructure\file;
 use local_uplannerconnect\infrastructure\log;
+use local_uplannerconnect\plugin_config\notification_settings;
 use moodle_exception;
 
 defined('MOODLE_INTERNAL') || die;
@@ -215,7 +216,7 @@ class handle_clean_uplanner_task
      */
     private function create_log($file_name)
     {
-        $this->log = new log($this->task_id, $file_name . '_date');
+        $this->log = new log($this->task_id, $file_name . '_date', notification_settings::emails_enabled());
         $this->log->create_log(
             'TASK ' . strtoupper($this->task_id) . ' ' . $this->current_date
         );
@@ -230,7 +231,7 @@ class handle_clean_uplanner_task
     private function create_file($file_name)
     {
         $headers = $this->getHeaders();
-        $this->file = new file($this->task_id, $file_name);
+        $this->file = new file($this->task_id, $file_name, notification_settings::emails_enabled());
         return $this->file->create_csv($headers);
     }
 
@@ -262,9 +263,7 @@ class handle_clean_uplanner_task
      */
     private function send_email($subject, $file): bool
     {
-        $recipient_email = 'samuel.ramirez@correounivalle.edu.co';
         return $this->email->send(
-            $recipient_email,
             $subject,
             $this->current_date,
             $file->get_path_file(),
