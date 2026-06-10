@@ -8,8 +8,9 @@
 
 namespace local_uplannerconnect\infrastructure\api;
 
-use local_uplannerconnect\application\messages\connection;
 use local_uplannerconnect\application\repository\general_repository;
+use local_uplannerconnect\infrastructure\api\client\uplanner_messages_status_client;
+use local_uplannerconnect\infrastructure\api\exception\uplanner_messages_status_api_exception;
 use local_uplannerconnect\application\repository\messages_status_repository;
 use local_uplannerconnect\application\repository\repository_type;
 use local_uplannerconnect\infrastructure\api\client\abstract_uplanner_client;
@@ -97,16 +98,18 @@ class handle_clean_uplanner_task
      */
     public function process($page_size = 1000) {
         try {
-            $connection = connection::getInstance()->getConnection();
-            if ($connection) {
+            if ($this->is_status_api_configured()) {
+                mtrace('[clean] Starting clean task' . PHP_EOL);
                 $this->create_log($this->prefix . $this->task_id . '_log');
                 $this->log->add_line("------------------------------------------  UPLANNER - PROCESS START - FOREACH REPOSITORIES ------------------------------------------ ");
                 $log_id = $this->general_repository->add_log_data();
                 foreach (repository_type::ACTIVE_REPOSITORY_TYPES as $type => $repository_class) {
+                    mtrace('[clean] Repository: ' . $type . PHP_EOL);
                     $this->log->add_line('------- CREATE REPOSITORY OBJECT: ' . $type . ' - ' . $repository_class  . PHP_EOL);
                     $repository = new $repository_class($type);
                     $uplanner_client = $this->uplanner_client_factory->create($type);
                     $this->start_process_per_repository(
+                        $type,
                         $repository,
                         $uplanner_client,
                         $page_size
@@ -114,6 +117,7 @@ class handle_clean_uplanner_task
                 }
                 $this->log->add_line("------------------------------------------            ADD LOGS (COUNT LOGS)     ------------------------------------------ ");
                 $this->general_repository->add_log_errors_data($log_id);
+                mtrace('[clean] Deleting completed rows (success=1, is_sucessful=1)' . PHP_EOL);
                 $this->log->add_line("-------------------------------------- UPLANNER - DELETE LOGS (success and is_sucessful = 1)------------------------------------------ ");
                 foreach (repository_type::ACTIVE_REPOSITORY_TYPES as $type => $repository_class) {
                     $repository = new $repository_class($type);
@@ -125,17 +129,50 @@ class handle_clean_uplanner_task
                     $this->general_repository->delete_rows($repository::TABLE, $condition);
                 }
                 $this->log->add_line("------------------------------------------            UPLANNER - PROCESS FINISHED             ------------------------------------------ ");
+                mtrace('[clean] Finished' . PHP_EOL);
                 $this->send_email(
                     $this->prefix . $this->task_id . '_log',
                     $this->log
                 );
                 $this->log->reset_log();
             } else {
-                mtrace('Connection failed, error invalid data or credentials' . PHP_EOL);
+                mtrace('Status API not configured: set messages_host, key and token_endpoint' . PHP_EOL);
             }
+        } catch (uplanner_messages_status_api_exception $e) {
+            $this->handle_status_api_failure($e);
         } catch (moodle_exception $e) {
             error_log('get_messages: ' . $e->getMessage() . PHP_EOL);
         }
+    }
+
+    /**
+     * Stop clean task and record status API endpoint error.
+     *
+     * @param uplanner_messages_status_api_exception $e
+     * @return void
+     */
+    private function handle_status_api_failure(uplanner_messages_status_api_exception $e): void
+    {
+        $message = $e->getMessage();
+        mtrace($message . PHP_EOL);
+        error_log($message . PHP_EOL);
+
+        if (isset($this->log) && $this->log) {
+            $this->log->add_line('UPLANNER STATUS API ERROR: ' . $message);
+            $this->send_email($this->prefix . $this->task_id . '_log', $this->log);
+            $this->log->reset_log();
+        }
+    }
+
+    /**
+     * Whether uPlanner status API settings are present.
+     *
+     * @return bool
+     */
+    private function is_status_api_configured(): bool
+    {
+        $client = new uplanner_messages_status_client();
+        return $client->is_configured();
     }
 
     /**
@@ -147,6 +184,7 @@ class handle_clean_uplanner_task
      * @return void
      */
     private function start_process_per_repository(
+        $type,
         $repository,
         $uplanner_client,
         $page_size
@@ -165,14 +203,19 @@ class handle_clean_uplanner_task
                     'limit' => $page_size,
                     'offset' => $offset,
                 ];
-                $this->log->add_line('UPLANNER - DATA QUERY: ' . json_encode($data));
                 $rows = $repository->getDataBD($data);
-                $this->log->add_line('UPLANNER - DATA ROWS: ' . json_encode($rows));
+                $rowcount = is_array($rows) ? count($rows) : 0;
+                $this->log->add_line('UPLANNER - DATA QUERY: offset=' . $offset . ' limit=' . $page_size);
+                $this->log->add_line('UPLANNER - DATA ROWS: count=' . $rowcount);
                 if (!$rows) {
+                    mtrace('[clean] Repository: ' . $type . ' | offset=' . $offset . ' | done' . PHP_EOL);
                     break;
                 }
+                mtrace('[clean] Repository: ' . $type . ' | offset=' . $offset . ' | rows=' . $rowcount . PHP_EOL);
+                mtrace('[clean] Repository: ' . $type . ' | querying status API | transactionIds=' . $rowcount . PHP_EOL);
                 $this->log->add_line('UPLANNER - PROCESS - COMPARE LOGS ');
                 $this->message_repository->process($repository, $rows, $this->log);
+                mtrace('[clean] Repository: ' . $type . ' | offset=' . $offset . ' | compare done' . PHP_EOL);
                 $data = [
                     'state' => repository_type::STATE_SEND,
                     'limit' => $page_size,
@@ -189,6 +232,8 @@ class handle_clean_uplanner_task
                 }
                 $offset += count($rows);
             }
+        } catch (uplanner_messages_status_api_exception $e) {
+            throw $e;
         } catch (moodle_exception $e) {
             error_log('handle_remove_success_uplanner_task - process: ' . $e->getMessage() . PHP_EOL);
         }
