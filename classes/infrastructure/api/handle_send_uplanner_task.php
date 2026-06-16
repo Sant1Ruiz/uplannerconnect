@@ -16,6 +16,7 @@ use local_uplannerconnect\application\repository\messages_status_repository;
 use local_uplannerconnect\infrastructure\email\email;
 use local_uplannerconnect\infrastructure\file;
 use local_uplannerconnect\infrastructure\log;
+use local_uplannerconnect\plugin_config\notification_settings;
 
 defined('MOODLE_INTERNAL') || die;
 
@@ -61,9 +62,11 @@ class handle_send_uplanner_task
     private $prefix = '';
 
     /**
+     * Whether this handler may send notification emails (cron send passes false).
+     *
      * @var bool
      */
-    private $send_emails;
+    private $sendemails;
 
     /**
      * @var messages_status_repository
@@ -73,15 +76,15 @@ class handle_send_uplanner_task
     /**
      * Construct
      *
-     * @param $tasks_id
-     * @param $send_emails
+     * @param string $tasksid Task identifier prefix (send, resend, etc.).
+     * @param bool $sendemails When false, skips email attachments even if enabled in plugin settings.
      */
     public function __construct(
-        $tasks_id,
-        $send_emails = true
+        $tasksid,
+        $sendemails = true
     ) {
-        $this->task_id = $tasks_id;
-        $this->send_emails = $send_emails;
+        $this->task_id = $tasksid;
+        $this->sendemails = $sendemails;
         $this->prefix = $this->task_id . '_';
         $this->current_date = date("F j, Y, g:i:s a");
         $this->uplanner_client_factory = new uplanner_client_factory();
@@ -222,7 +225,7 @@ class handle_send_uplanner_task
      */
     private function create_file($file_name, $rows, $status)
     {
-        $this->file = new file($this->task_id, $file_name, $this->send_emails);
+        $this->file = new file($this->task_id, $file_name, $this->notifications_enabled_for_run());
         $fileCreated = $this->file->create_csv(abstract_uplanner_client::FILE_HEADERS);
         if ($fileCreated) {
             foreach ($rows as $row) {
@@ -245,7 +248,7 @@ class handle_send_uplanner_task
      */
     private function create_log($file_name)
     {
-        $this->log = new log($this->task_id, $file_name . '_date', $this->send_emails);
+        $this->log = new log($this->task_id, $file_name . '_date', $this->notifications_enabled_for_run());
         $this->log->create_log(
             'TASK ' . strtoupper($this->task_id) . ' ' . $this->current_date
         );
@@ -260,18 +263,26 @@ class handle_send_uplanner_task
      */
     private function send_email($subject, $file)
     {
-        if ($this->send_emails) {
-            $recipient_email = 'samuel.ramirez@correounivalle.edu.co';
-            return $this->email->send(
-                $recipient_email,
-                $subject,
-                $this->current_date,
-                $file->get_path_file(),
-                $file->get_virtual_name()
-            );
+        if (!$this->notifications_enabled_for_run()) {
+            return false;
         }
 
-        return false;
+        return $this->email->send(
+            $subject,
+            $this->current_date,
+            $file->get_path_file(),
+            $file->get_virtual_name()
+        );
+    }
+
+    /**
+     * Plugin notifications enabled and this handler allows email for this run.
+     *
+     * @return bool
+     */
+    private function notifications_enabled_for_run(): bool
+    {
+        return $this->sendemails && notification_settings::emails_enabled();
     }
 
     /**

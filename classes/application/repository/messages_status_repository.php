@@ -9,6 +9,7 @@ namespace local_uplannerconnect\application\repository;
 
 use Exception;
 use local_uplannerconnect\application\messages\messages_resource;
+use local_uplannerconnect\infrastructure\api\exception\uplanner_messages_status_api_exception;
 
 /**
  * Loaded class to manipulate data in uplanner_esb_messages_status table
@@ -48,40 +49,49 @@ class messages_status_repository
      */
     public function process($repository, $rows, $log, $updateStatus = true)
     {
-        error_log('------------------------------------------  PROCESS START - UPLANNER QUERY ------------------------------------------');
         try {
-            $uv_transactions = $this->get_uv_transactions($rows);
-            $log->add_line(' --- UV TRANSACTIONS: ' . json_encode($uv_transactions));
+            $parsedrows = $this->parse_rows($rows);
+            $this->report_skipped_rows($parsedrows['skipped'], $log);
+            if ($updateStatus) {
+                $this->mark_skipped_rows($repository, $parsedrows['skipped']);
+            }
+            $uv_transactions = $parsedrows['transaction_ids'];
+            $log->add_line(' --- UV TRANSACTIONS: count=' . count($uv_transactions));
             $up_messages = $this->get_list_by_transactions(
                 $uv_transactions
             );
-            $log->add_line(' --- UP MESSAGES: ' . json_encode($up_messages));
+            $log->add_line(' --- UP MESSAGES: ' . $this->summarize_up_messages($up_messages));
             $log->add_line(' ---------------- FOREACH - COMPARE LOGS: ');
-            foreach ($rows as $row) {
-                $json = json_decode($row->json, true);
-                $id_transaction = intval($json['transactionId']);
-                $log->add_line(' --- TRANSACTION ID: ' . $id_transaction  . PHP_EOL);
-                $filtered_messages = array_filter($up_messages, function ($message) use ($id_transaction) {
-                    return $message['id_transaction'] == $id_transaction;
+            foreach ($parsedrows['valid'] as $parsedrow) {
+                $row = $parsedrow['row'];
+                $idtransaction = $parsedrow['transaction_id'];
+                $filtered_messages = array_filter($up_messages, function ($message) use ($idtransaction) {
+                    return $message['id_transaction'] == $idtransaction;
                 });
                 $message = reset($filtered_messages);
-                $is_successful = 0;
-                $ds_error = 'Not found in uPlanner database.';
+                $issuccessful = 0;
+                $dserror = 'Not found in uPlanner database.';
                 $state = $row->success;
                 if ($message) {
                     if (($message['is_successful'] === 1 || $message['is_successful'] === '1')) {
-                        $ds_error = '';
-                        $is_successful = 1;
+                        $dserror = '';
+                        $issuccessful = 1;
                     } else {
-                        $ds_error = $message['ds_error'];
+                        $dserror = $message['ds_error'];
                         $state = repository_type::STATE_UP_ERROR;
                     }
                 }
-                $log->add_line(' --- UV LOG: ' . json_encode($row));
-                $log->add_line(' --- UP LOG: ' . json_encode($message));
+                $log->add_line(sprintf(
+                    ' --- row id=%s transactionId=%s is_sucessful=%s success=%s ds_error=%s',
+                    $row->id,
+                    $idtransaction,
+                    $issuccessful,
+                    $state,
+                    $dserror
+                ));
                 $data = [
-                    'is_sucessful' => $is_successful,
-                    'ds_error' => $ds_error,
+                    'is_sucessful' => $issuccessful,
+                    'ds_error' => $dserror,
                     'id' => $row->id
                 ];
                 if ($updateStatus) {
@@ -91,9 +101,10 @@ class messages_status_repository
                 if ($updateStatus && !$message) {
                     $data['success'] = repository_type::STATE_UP_ERROR;
                 }
-                $log->add_line(' --- UV UPDATE: ' . json_encode($data));
                 $repository->updateDataBD($data);
             }
+        } catch (uplanner_messages_status_api_exception $e) {
+            throw $e;
         } catch (Exception $e) {
             error_log('messages_status_repository->process: ' . $e->getMessage() . PHP_EOL);
         }
@@ -106,7 +117,6 @@ class messages_status_repository
      */
     public function process_error_state($repository,$rows)
     {
-        error_log('------------------------------------------  PROCESS START RE SENDING - UPLANNER QUERY ------------------------------------------');
         try {
             foreach ($rows as $row) {
                 $data = [
@@ -116,7 +126,7 @@ class messages_status_repository
                     'ds_error' => "",
                     'id' => $row->id
                 ];
-               
+
                 $repository->updateDataBD($data);
             }
         } catch (Exception $e) {
@@ -125,16 +135,189 @@ class messages_status_repository
     }
 
     /**
-     * Return list transactions
+     * Split rows into valid (with transactionId) and skipped (invalid JSON).
      *
-     * @param $rows
+     * @param array $rows
+     * @return array Keys valid, skipped, transaction_ids.
+     */
+    private function parse_rows(array $rows): array
+    {
+        $valid = [];
+        $skipped = [];
+        $transactionids = [];
+
+        foreach ($rows as $row) {
+            $classification = $this->classify_row($row);
+            if ($classification['transaction_id'] > 0) {
+                $valid[] = [
+                    'row' => $row,
+                    'transaction_id' => $classification['transaction_id'],
+                ];
+                $transactionids[] = $classification['transaction_id'];
+                continue;
+            }
+
+            $skipped[] = $classification;
+        }
+
+        return [
+            'valid' => $valid,
+            'skipped' => $skipped,
+            'transaction_ids' => $transactionids,
+        ];
+    }
+
+    /**
+     * @param $repository
+     * @param array $skipped
+     * @return void
+     */
+    private function mark_skipped_rows($repository, array $skipped): void
+    {
+        foreach ($skipped as $item) {
+            $repository->updateDataBD([
+                'id' => $item['row_id'],
+                'ds_error' => $item['ds_error'],
+                'success' => repository_type::STATE_UP_ERROR,
+                'is_sucessful' => 0,
+            ]);
+        }
+    }
+
+    /**
+     * @param array $skipped
+     * @param $log
+     * @return void
+     */
+    private function report_skipped_rows(array $skipped, $log): void
+    {
+        if (empty($skipped)) {
+            return;
+        }
+
+        $rowids = array_map(function (array $item): int {
+            return (int) $item['row_id'];
+        }, $skipped);
+
+        mtrace(sprintf(
+            '[clean] skipped rows with invalid JSON: count=%d ids=%s' . PHP_EOL,
+            count($skipped),
+            implode(',', $rowids)
+        ));
+
+        $log->add_line(' --- SKIPPED ROWS (invalid JSON): count=' . count($skipped));
+        foreach ($skipped as $item) {
+            $log->add_line(' --- ' . $item['summary']);
+        }
+    }
+
+    /**
+     * @param \stdClass $row
      * @return array
      */
-    private function get_uv_transactions($rows)
+    private function classify_row($row): array
     {
-        return array_map(function ($row) {
-            $json = json_decode($row->json, true);
-            return intval($json['transactionId']);
-        }, $rows);
+        $rowid = (int) ($row->id ?? 0);
+
+        if (empty($row->json)) {
+            return [
+                'row_id' => $rowid,
+                'transaction_id' => 0,
+                'reason' => 'empty_json',
+                'summary' => sprintf('row id=%s reason=empty_json', $rowid),
+                'ds_error' => 'Skipped: empty JSON payload.',
+            ];
+        }
+
+        $json = json_decode($row->json, true);
+        if (!is_array($json)) {
+            return [
+                'row_id' => $rowid,
+                'transaction_id' => 0,
+                'reason' => 'invalid_json',
+                'summary' => sprintf(
+                    'row id=%s reason=invalid_json preview=%s',
+                    $rowid,
+                    $this->truncate_json_preview((string) $row->json)
+                ),
+                'ds_error' => 'Skipped: invalid JSON payload.',
+            ];
+        }
+
+        if (empty($json['transactionId'])) {
+            $sectionid = isset($json['sectionId']) ? (string) $json['sectionId'] : '';
+            return [
+                'row_id' => $rowid,
+                'transaction_id' => 0,
+                'reason' => 'missing_transaction_id',
+                'summary' => sprintf(
+                    'row id=%s reason=missing_transactionId sectionId=%s',
+                    $rowid,
+                    $sectionid !== '' ? $sectionid : 'n/a'
+                ),
+                'ds_error' => 'Skipped: JSON missing transactionId.',
+            ];
+        }
+
+        $transactionid = intval($json['transactionId']);
+        if ($transactionid <= 0) {
+            return [
+                'row_id' => $rowid,
+                'transaction_id' => 0,
+                'reason' => 'invalid_transaction_id',
+                'summary' => sprintf(
+                    'row id=%s reason=invalid_transactionId value=%s',
+                    $rowid,
+                    (string) $json['transactionId']
+                ),
+                'ds_error' => 'Skipped: invalid transactionId.',
+            ];
+        }
+
+        return [
+            'row_id' => $rowid,
+            'transaction_id' => $transactionid,
+            'reason' => '',
+            'summary' => '',
+            'ds_error' => '',
+        ];
+    }
+
+    /**
+     * @param string $json
+     * @param int $maxlength
+     * @return string
+     */
+    private function truncate_json_preview(string $json, int $maxlength = 200): string
+    {
+        $json = preg_replace('/\s+/', ' ', trim($json));
+        if ($json === '') {
+            return '(empty)';
+        }
+
+        if (strlen($json) <= $maxlength) {
+            return $json;
+        }
+
+        return substr($json, 0, $maxlength) . '...';
+    }
+
+    /**
+     * @param array $messages
+     * @return string
+     */
+    private function summarize_up_messages(array $messages): string
+    {
+        $successful = 0;
+        $failed = 0;
+        foreach ($messages as $message) {
+            if (!empty($message['is_successful'])) {
+                $successful++;
+            } else {
+                $failed++;
+            }
+        }
+
+        return 'count=' . count($messages) . ' successful=' . $successful . ' failed=' . $failed;
     }
 }

@@ -118,7 +118,6 @@ class log
     {
         if ($this->create_file) {
             try {
-                error_log($line . PHP_EOL);
                 $text_file = $this->get_path_file();
                 file_put_contents($text_file, $line . PHP_EOL, FILE_APPEND);
                 return true;
@@ -141,7 +140,6 @@ class log
     {
         if ($this->create_file) {
             try {
-                error_log(implode(PHP_EOL, $lines) . PHP_EOL);
                 $text_file = $this->get_path_file();
                 file_put_contents($text_file, implode(PHP_EOL, $lines) . PHP_EOL, FILE_APPEND);
                 return true;

@@ -16,6 +16,7 @@ use local_uplannerconnect\infrastructure\api\factory\uplanner_client_factory;
 use local_uplannerconnect\infrastructure\email\email;
 use local_uplannerconnect\infrastructure\file;
 use local_uplannerconnect\infrastructure\log;
+use local_uplannerconnect\plugin_config\notification_settings;
 
 defined('MOODLE_INTERNAL') || die;
 
@@ -265,7 +266,7 @@ class handle_send_uplanner_edit
      */
     private function create_file($file_name, $rows, $status)
     {
-        $this->file = new file($this->task_id, $file_name);
+        $this->file = new file($this->task_id, $file_name, notification_settings::emails_enabled());
         $headers = abstract_uplanner_client::FILE_HEADERS;
         $headers[] = 'response';
         $headers[] = 'is_sucessful';
@@ -296,7 +297,7 @@ class handle_send_uplanner_edit
      */
     private function create_log($file_name)
     {
-        $this->log = new log($this->task_id, $file_name . '_date');
+        $this->log = new log($this->task_id, $file_name . '_date', notification_settings::emails_enabled());
         $this->log->create_log(
             'TASK ' . strtoupper($this->task_id) . ' ' . $this->current_date
         );
@@ -311,9 +312,7 @@ class handle_send_uplanner_edit
      */
     private function send_email($subject, $file)
     {
-        $recipient_email = 'samuel.ramirez@correounivalle.edu.co';
         return $this->email->send(
-            $recipient_email,
             $subject,
             $this->current_date,
             $file->get_path_file(),

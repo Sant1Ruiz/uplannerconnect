@@ -221,6 +221,28 @@ if ($hassiteconfig) {
                 PARAM_INT
             )
         );
+
+        $settings->add(new admin_setting_heading(
+                $pluginName . '_notification_emails',
+                get_string('notification_emails_heading', $pluginName),
+                get_string('notification_emails_heading_desc', $pluginName)
+            )
+        );
+        $settings->add(new admin_setting_configcheckbox(
+                $pluginName . '/enable_notification_emails',
+                get_string('enable_notification_emails', $pluginName),
+                get_string('enable_notification_emails_desc', $pluginName),
+                0
+            )
+        );
+        $settings->add(new admin_setting_configtext(
+                $pluginName . '/notification_email',
+                get_string('notification_email', $pluginName),
+                get_string('notification_email_desc', $pluginName),
+                'notifications@example.com',
+                PARAM_EMAIL
+            )
+        );
     }
 
     // Agrega la página de configuración al árbol
