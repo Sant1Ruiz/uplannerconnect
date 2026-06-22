@@ -46,9 +46,11 @@ class utils
     public function convertFormatUplanner($originalString) 
     {
         $pattern = '/^(\d{2})-(\d{6}[A-Za-z])-(\d{2})-(\d{9})$/';
+        $pattern2 = '/^(\d{2})-(\d{6})-(\d{2})-(\d{9})$/';
+        $pattern3 = '/^(\d{2})-([A-Za-z]\d{5}[A-Za-z])-(\d{2})-(\d{9})$/';
         $newString = $originalString;
         
-        if (preg_match($pattern, $originalString, $matches)) {
+        if (preg_match($pattern, $originalString, $matches) || preg_match($pattern2, $originalString, $matches) || preg_match($pattern3, $originalString, $matches)) {
             
             $part1 = $matches[1];
             $part2 = $matches[2];
