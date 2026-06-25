@@ -10,6 +10,13 @@ $string['manage'] = 'Settings for the uPlannerConnect plugin';
 $string['generalsettingsheading'] = 'General settings';
 $string['generalsettingsheading_desc'] = 'General settings for the plugin';
 
+$string['notification_emails_heading'] = 'Notificaciones por correo';
+$string['notification_emails_heading_desc'] = 'Configuración de los informes (CSV y logs) enviados tras las tareas de sincronización con uPlanner.';
+$string['enable_notification_emails'] = 'Activar envío de correos';
+$string['enable_notification_emails_desc'] = 'Si está activo, las tareas programadas y los reenvíos manuales pueden enviar informes al correo indicado abajo. Requiere que el correo saliente de Moodle esté configurado.';
+$string['notification_email'] = 'Correo destinatario de notificaciones';
+$string['notification_email_desc'] = 'Dirección que recibe los informes de las tareas uPlanner (archivos CSV y de log).';
+
 // Tasks.
 $string['syncsendtuplannertask'] = 'Send uPlanner Task';
 $string['synccleanuplannertask'] = 'Clean Log uPlanner Task';

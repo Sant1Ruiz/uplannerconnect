@@ -43,7 +43,9 @@ class academic_period_checker
                 //verifica si tiene algun dato en la posición 4
                 if (!empty($shortname)) {
                     $patron = '/^(\d{2})-(\d{6}[A-Za-z])-(\d{2})-(\d{9})$/';
-                    if (preg_match($patron, $shortname, $matches)){
+                    $patron2 = '/^(\d{2})-(\d{6})-(\d{2})-(\d{9})$/';
+                    $patron3 = '/^(\d{2})-([A-Za-z]\d{5}[A-Za-z])-(\d{2})-(\d{9})$/';
+                    if (preg_match($patron, $shortname, $matches) || preg_match($patron2, $shortname, $matches) || preg_match($patron3, $shortname, $matches)){
                         $result = $matches[4];
                     }
                 }

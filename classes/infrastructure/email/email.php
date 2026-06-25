@@ -9,6 +9,7 @@
 namespace local_uplannerconnect\infrastructure\email;
 
 use coding_exception;
+use local_uplannerconnect\plugin_config\notification_settings;
 use stdClass;
 
 /**
@@ -19,23 +20,26 @@ class email
     /**
      * Send email with uPlanner info
      *
-     * @param $recipient_email
-     * @param $subject
-     * @param $current_date
-     * @param $attachment_path
-     * @param $attachment_name
+     * @param string $subject Lang string key for the subject (local_uplannerconnect).
+     * @param string $currentdate Date string appended to the subject.
+     * @param string $attachmentpath Path to the attachment file.
+     * @param string $attachmentname Attachment filename for the recipient.
      * @return bool
      */
     public function send(
-        $recipient_email,
         $subject,
-        $current_date,
-        $attachment_path,
-        $attachment_name
+        $currentdate,
+        $attachmentpath,
+        $attachmentname
     ): bool {
+        if (!notification_settings::should_send()) {
+            return false;
+        }
+
         try {
+            $recipientemail = notification_settings::get_recipient_email();
             $user = new stdClass();
-            $user->email = $recipient_email;
+            $user->email = $recipientemail;
             $user->id = '000001';
             $user->username = 'univalle';
             $admin = get_admin();
@@ -51,14 +55,14 @@ class email
             return email_to_user(
                 $user,
                 $admin,
-                $subject . ' - ' . $current_date,
+                $subject . ' - ' . $currentdate,
                 $body,
                 '',
-                $attachment_path,
-                $attachment_name
+                $attachmentpath,
+                $attachmentname
             );
         } catch (coding_exception $e) {
-            error_log('send: '. $e->getMessage() . PHP_EOL);
+            error_log('send: ' . $e->getMessage() . PHP_EOL);
         }
 
         return false;

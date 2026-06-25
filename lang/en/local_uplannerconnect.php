@@ -10,6 +10,13 @@ $string['manage'] = 'Settings for the uPlannerConnect plugin';
 $string['generalsettingsheading'] = 'General settings';
 $string['generalsettingsheading_desc'] = 'General settings for the plugin';
 
+$string['notification_emails_heading'] = 'Email notifications';
+$string['notification_emails_heading_desc'] = 'Settings for CSV and log attachments sent after uPlanner sync tasks.';
+$string['enable_notification_emails'] = 'Enable email notifications';
+$string['enable_notification_emails_desc'] = 'When enabled, scheduled tasks and manual resends can email reports to the address below. Requires Moodle outgoing mail to be configured.';
+$string['notification_email'] = 'Notification recipient email';
+$string['notification_email_desc'] = 'Email address that receives uPlanner task reports (CSV and log files).';
+
 // Access.
 $string['reports'] = 'Reports for the UplannerConnect plugin';
 
